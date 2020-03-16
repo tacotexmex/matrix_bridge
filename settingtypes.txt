@@ -1,0 +1,2 @@
+telegram.token (Bot token) string
+telegram.chat_id (Chat ID) string
