@@ -8,9 +8,6 @@ if not chat_id then
 	error("Please set telegram.chat_id to the chat_id of the group in your minetest.conf.")
 end
 
-print(token)
-print(chat_id)
-
 local http_api = minetest.request_http_api()
 
 if http_api == nil then
@@ -19,7 +16,7 @@ end
 
 
 local api_url = 'https://api.telegram.org/bot'..token..'/'
-local long_polling_timeout = 600
+local long_polling_timeout = 300
 local latest_update = 0
 
 
@@ -31,7 +28,7 @@ function getUpdates()
 			offset = latest_update,
 			timeout = long_polling_timeout
 		},
-		timeout = long_polling_timeout + 1
+		timeout = long_polling_timeout + 10
 	}, function (result)
 		if result.succeeded and result.code == 200 then
 			local parsed = minetest.parse_json(result.data)
