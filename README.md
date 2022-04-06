@@ -1,6 +1,6 @@
-# Minetest Telegram bridge
+# Minetest Matrix bridge
 
-A bridge to relay messages from Telegram to Minetest and vice-versa.
+A bridge to relay messages from Matrix to Minetest and vice-versa.
 
 I made this mod because the only other mode I found on the Internet required a complex setup.
 
