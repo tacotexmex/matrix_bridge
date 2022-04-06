@@ -1,2 +1,3 @@
-telegram.token (Bot token) string
-telegram.chat_id (Chat ID) string
+matrix.server (Homeserver URL) string
+matrix.token (Access token) string
+matrix.room (Room ID) string

@@ -1,118 +1,164 @@
-local token = minetest.settings:get('telegram.token')
-local chat_id = minetest.settings:get('telegram.chat_id')
+local server = minetest.settings:get("matrix.server")
+local token = minetest.settings:get("matrix.token")
+local room = minetest.settings:get("matrix.room")
+local server_name = minetest.settings:get("server_name")
+
+if not server then
+	error("Please set matrix.server to your Matrix homeserver URL in minetest.conf.")
+end
 
 if not token then
-	error("Please set telegram.token to your bot's token in your minetest.conf.")
+	error("Please set matrix.token to your Matrix access token in minetest.conf.")
 end
-if not chat_id then
-	error("Please set telegram.chat_id to the chat_id of the group in your minetest.conf.")
+if not room then
+	error("Please set matrix.room to the room ID in minetest.conf.")
 end
 
 local http_api = minetest.request_http_api()
 
 if http_api == nil then
-	error('This mods needs permission to perform HTTP requests. Please add `secure.http_mods = "telegram"` to your minetest.conf.')
+	error('This mods needs permission to perform HTTP requests. Please add `secure.http_mods = "matrix_bridge"` to minetest.conf.')
 end
 
-
-local api_url = 'https://api.telegram.org/bot'..token..'/'
+local api_url = server.."/_matrix/client/r0/"
 local long_polling_timeout = 300
-local latest_update = 0
-
-
-function getUpdates()
-	minetest.log('verbose', "getUpdates with offset = "..latest_update)
+local latest_update = ""
+--GET /_matrix/client/r0/rooms/ROOM/messages?from=s345_678_333&dir=b&limit=3&filter=%7B%22contains_url%22%3Atrue%7D HTTP/1.1
+local function getEvents()
+	minetest.log("verbose", "sync with offset = "..latest_update)
+	local from = ""
+	if latest_update ~= "" then
+		from = "from="..latest_update.."&"
+	end
 	http_api.fetch({
-		url = api_url..'getUpdates',
+		url = api_url.."rooms/"..room.."/messages?"..from.."dir=b&limit=1&access_token="..token,
 		post_data = {
-			offset = latest_update,
-			timeout = long_polling_timeout
+		-- 	offset = latest_update,
+		-- 	timeout = long_polling_timeout
 		},
 		timeout = long_polling_timeout + 10
 	}, function (result)
 		if result.succeeded and result.code == 200 then
-			local parsed = minetest.parse_json(result.data)
-			for _,update in pairs(parsed.result) do
-				if update.update_id >= latest_update then
-					minetest.log('verbose', "New update available from Telegram.")
-					latest_update = update.update_id + 1
-					local text = update.message.text
-					if text then
-						local name = update.message.from.username or update.message.from.first_name or update.message.from.id
-						minetest.chat_send_all(name..': '..update.message.text)
-					end
-				end
-			end
-			minetest.after(1, getUpdates)
-		elseif result.timeout then
-			minetest.log('verbose', 'No more updates...')
-			minetest.after(1, getUpdates)
-		elseif result.code == 409 then
-			minetest.log('warning', "Telegram rate limited!")
-			minetest.after(10, getUpdates)
-		else
-			minetest.log('error', 'Could not receive updates from Telegram!')
-			minetest.after(10, getUpdates)
+			-- local parsed = minetest.parse_json(result.data)
+			print ("---HÄR------------------------ "..dump(result.data))
+
+			-- if parsed.timeline.prev_batch != latest_update then
+
+			-- end
+
+		-- 	for _,event in pairs(parsed.timeline.events) do
+		-- 		if event.event_id != latest_update then
+		-- 			minetest.log("verbose", "New update available from Telegram.")
+		-- 			latest_update = update.update_id + 1
+		-- 			local text = update.message.text
+		-- 			if text then
+		-- 				local name = update.message.from.username or update.message.from.first_name or update.message.from.id
+		-- 				minetest.chat_send_all(name..": "..update.message.text)
+		-- 			end
+		-- 		end
+		-- 	end
+		-- 	minetest.after(1, getEvents)
+		-- elseif result.timeout then
+		-- 	minetest.log("verbose", "No more updates...")
+		-- 	minetest.after(1, getEvents)
+		-- elseif result.code == 409 then
+		-- 	minetest.log("warning", "Telegram rate limited!")
+		-- 	minetest.after(10, getEvents)
+		-- else
+		-- 	minetest.log("error", "Could not receive updates from Telegram!")
+		-- 	minetest.after(10, getEvents)
 		end
 	end)
 end
 
-
-function sendMessage(text, disable_notification, callback)
+local function sendMessage(message, disable_notification, callback)
 	http_api.fetch({
-		url = api_url..'sendMessage',
-		post_data = {
-			chat_id = chat_id,
-			text = text,
-			disable_notification = tostring(disable_notification),
-			parse_mode = "Markdown"
-		}
+		url = api_url.."rooms/"..room.."/send/m.room.message?access_token="..token,
+		post_data = minetest.write_json({
+			msgtype = "m.text",
+			body = message.body,
+            format = "org.matrix.custom.html",
+			formatted_body = message.formatted_body
+		})
 	}, callback)
 end
 
-
-function test_callback(result)
+local function test_callback(result)
 	if result.succeeded and result.code == 200 then
 		local parsed = minetest.parse_json(result.data)
-		minetest.log('verbose', "Message sent: "..parsed.result.text)
+		minetest.log("verbose", "Message sent: "..parsed.event_id)
 	else
-		minetest.log('error', "error sending message: "..dump(result))
+		minetest.log("error", "error sending message: "..parsed.event_id)
 	end
 end
 
-
-function startup()
-	sendMessage("Good Morning! The server is resurrecting from the dead. おはようございます！サーバーは死から復活しています。", false, test_callback)
+local function hashcolor(name)
+	local name_hash = name.."sixcharsminimum"
+	return string.sub(minetest.sha1(name_hash), 1, 6)
 end
 
-
-function join(player)
-	local name = "**"..player:get_player_name().."**"
-	sendMessage(name.." joined the server. "..name.."さんはサーバーに参加しました。", false, test_callback)
+local function startup()
+	sendMessage({
+		body = "Server "..server_name.." is starting up",
+		formatted_body = "☀️ <em>Server "..server_name.." is starting up</em>."
+	},
+		false,
+		test_callback
+	)
 end
 
-
-function chat(name, message)
-	sendMessage("**"..name.."**さんは「"..message.."」と言いました。", true, test_callback)
+local function join(player)
+	local name = player:get_player_name()
+	sendMessage({
+		body = name.." joined the server.",
+		formatted_body = "👊 <em><font color=#"..hashcolor(name)..">"..name.."</font> joined the server.</em>"
+	},
+		false,
+		test_callback
+	)
 end
 
-
-function dead(player)
-	local name = "**"..player:get_player_name().."**"
-	sendMessage(name.." has been confirmed dead. "..name.."さんは死亡が確認されました。", true, test_callback)
+local function chat(name, message)
+	sendMessage({
+		body = "<"..name.."> "..message,
+		formatted_body = "<strong><font color=#"..hashcolor(name)..">&lt;"..name.."&gt;</strong> "..message
+	},
+		true,
+		test_callback
+	)
 end
 
-
-function leave(player)
-	local name = "**"..player:get_player_name().."**"
-	sendMessage(name.." left the server. "..name.."さんはサーバーを離れました。", true, test_callback)
+local function dead(player)
+	local name = player:get_player_name()
+	sendMessage({
+		body = name.." has been confirmed dead.",
+		formatted_body = "💀 <em><font color=#"..hashcolor(name)..">"..name.." has been confirmed dead.</em>"
+	},
+		true,
+		test_callback
+	)
 end
 
-
-function shutdown()
-	sendMessage("Server is shutting down. サーバーがシャットダウンしています。", false, test_callback)
+local function leave(player)
+	local name = player:get_player_name()
+	sendMessage({
+		body = name.." left the server.",
+		formatted_body = "👋 <em><font color=#"..hashcolor(name)..">"..name.." left the server.</em>"
+	},
+		true,
+		test_callback
+	)
 end
 
+local function shutdown()
+	sendMessage({
+		body = "Server "..server_name.." is shutting down.",
+		formatted_body = "🌙 <em>Server "..server_name.." is shutting down.</em>"
+	},
+		false,
+		test_callback
+	)
+end
 
 minetest.register_on_joinplayer(join)
 minetest.register_on_chat_message(chat)
@@ -120,14 +166,15 @@ minetest.register_on_dieplayer(dead)
 minetest.register_on_leaveplayer(leave)
 minetest.register_on_shutdown(shutdown)
 
-
-http_api.fetch({url = api_url..'getMe'}, function (result)
-	if result.succeeded and result.code == 200 then
-		local parsed = minetest.parse_json(result.data)
-		minetest.log('info', "Starting up @"..parsed.result.username)
-		startup()
-		getUpdates()
-	else
-		minetest.log('error', "Telegram API returned an error. Is your token correct? Nothing more to do...")
+http_api.fetch({url = api_url.."account/whoami?access_token="..token},
+	function (result)
+		if result.succeeded and result.code == 200 then
+			local parsed = minetest.parse_json(result.data)
+			minetest.log("info", "Starting up bridge through "..parsed.user_id)
+			startup()
+			getEvents()
+		else
+			minetest.log("error", "Matrix client API returned an error. Is your token correct?")
+		end
 	end
-end)
+)
